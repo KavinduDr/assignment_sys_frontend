@@ -6,7 +6,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { ChangeEvent, useEffect, useState, useCallback } from 'react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Progress } from '../../components/ui/progress';
-import { Clock, ArrowLeft, ArrowRight, Send } from 'lucide-react';
+import { Clock, ArrowLeft, ArrowRight, Send, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import QuizMonitor from '@/app/components/QuizMonitor/QuizMonitor';
 import { useUser } from '@/context/UserContext';
 
@@ -21,6 +21,7 @@ const QuizPage = () => {
     const [sessionStarted, setSessionStarted] = useState(false);
     const [apiUrl, setApiUrl] = useState('');
     
+    // Type definitions
     interface QuizData {
         assignment: {
             questions: {
@@ -56,6 +57,7 @@ const QuizPage = () => {
         selectedOption: string;
     }
     
+    // Main state variables
     const [quizData, setQuizData] = useState<QuizData | null>(null);
     const [essayData, setEssayData] = useState<EssayData | null>(null);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -80,9 +82,7 @@ const QuizPage = () => {
         activeStudents: 0,
         completedStudents: 0
     });
-    const [isLiveStatsLoading, setIsLiveStatsLoading] = useState(false);
-    
-    // Initialize API URL
+    const [isLiveStatsLoading, setIsLiveStatsLoading] = useState(false);// Initialize API URL
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const url = window.location.hostname === 'localhost' 
@@ -217,9 +217,7 @@ const QuizPage = () => {
                 completeSession();
             }
         };
-    }, [sessionStarted, completeSession]);
-
-    // Fetch live stats
+    }, [sessionStarted, completeSession]);// Fetch live stats
     const fetchLiveStats = useCallback(async () => {
         const quizId = quizData?.assignment?._id || essayData?.essayAssignment?._id;
         if (!quizId || !apiUrl) return;
@@ -342,8 +340,46 @@ const QuizPage = () => {
 
         initializeTimer();
     }, [timeLimit]);
+    
+    // Timer countdown and auto-submit
+    useEffect(() => {
+        if (quizEndTime) {
+            const calculateRemainingTime = () => {
+                const now = new Date();
+                const end = new Date(quizEndTime);
+                const timeLeft = Math.max(0, Math.floor((end.getTime() - now.getTime()) / 1000));
 
-    // Save progress to session storage
+                setRemainingTime(timeLeft);
+                
+                // Auto-submit if time runs out
+                if (timeLeft <= 0) {
+                    console.log("Time's up!");
+                    completeSession();
+                    router.push(`/submissionpage/${id}`);
+                }
+            };
+
+            calculateRemainingTime();
+
+            // Set up interval
+            const timer = setInterval(calculateRemainingTime, 1000);
+
+            return () => clearInterval(timer);
+        }
+    }, [quizEndTime, id, router, completeSession]);
+    
+    // Format time for display
+    const formatTime = (seconds: number) => {
+        const minutes = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    };
+    
+    // Calculate progress percentage
+    const calculateProgress = () => {
+        const totalQuestions = (quizData?.assignment.questions.length || essayData?.essayAssignment.questions.length) ?? 1;
+        return ((currentQuestionIndex + 1) / totalQuestions) * 100;
+    };// Save progress to session storage
     useEffect(() => {
         const progress = {
             currentQuestionIndex,
@@ -357,6 +393,47 @@ const QuizPage = () => {
         sessionStorage.setItem('quizProgress', JSON.stringify(progress));
     }, [currentQuestionIndex, userAnswers, selectedAnswerId, shortAnswer, essayAnswer, quizStartTime, quizEndTime]);
 
+    // Fetch quiz and essay data
+    useEffect(() => {
+        if (!apiUrl || !id) return;
+
+        setIsLoading(true);
+        
+        // Fetch quiz data
+        fetch(`${apiUrl}/api/v1/${id}`)
+            .then((response) => response.json())
+            .then((data) => {
+                if (data.assignment) {
+                    setQuizData(data);
+                    setQuiz(data);
+                    setIsQuiz(true);
+                    setIsLoading(false);
+                    startSession();
+                }
+            })
+            .catch((error) => {
+                console.error('Error fetching quiz data:', error);
+                setIsLoading(false);
+            });
+
+        // Fetch essay data
+        fetch(`${apiUrl}/api/v1/essay/${id}`)
+            .then((response) => response.json())
+            .then((data) => {
+                if (data.essayAssignment) {
+                    setEssayData(data);
+                    setEssay(data);
+                    setIsEssay(true);
+                    setIsLoading(false);
+                    startSession();
+                }
+            })
+            .catch((error) => {
+                console.error('Error fetching essay data:', error);
+                setIsLoading(false);
+            });
+    }, [id, apiUrl, startSession, setQuiz, setEssay]);
+    
     // Handle answer selection
     const handleAnswerClick = (index: number, questionId: string, selectedOption: string) => {
         setSelectedAnswer(index);
@@ -383,13 +460,32 @@ const QuizPage = () => {
     const handleEssayAnswerChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
         setEssayAnswer(event.target.value);
     };
-
-    // Format time for display
-    const formatTime = (seconds: number) => {
-        const minutes = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    };
+    
+    // Restore saved answers when question changes
+    useEffect(() => {
+        const savedAnswer = userAnswers[currentQuestionIndex];
+        if (savedAnswer !== undefined) {
+            if (typeof savedAnswer === 'number') {
+                setSelectedAnswer(savedAnswer);
+                setShortAnswer('');
+                setEssayAnswer('');
+            } else if (typeof savedAnswer === 'string') {
+                setSelectedAnswer(null);
+                if (isQuiz) {
+                    setShortAnswer(savedAnswer);
+                    setEssayAnswer('');
+                } else {
+                    setShortAnswer('');
+                    setEssayAnswer(savedAnswer);
+                }
+            }
+        } else {
+            // Clear selections when moving to an unanswered question
+            setSelectedAnswer(null);
+            setShortAnswer('');
+            setEssayAnswer('');
+        }
+    }, [currentQuestionIndex, userAnswers, isQuiz]);
 
     // Handle next button click
     const handleNext = () => {
@@ -437,113 +533,14 @@ const QuizPage = () => {
             setSelectedAnswer(typeof prevAnswer === 'number' ? prevAnswer : null);
             setShortAnswer(typeof prevAnswer === 'string' ? prevAnswer : '');
         }
-    };
-
-    // Restore saved answers when question changes
-    useEffect(() => {
-        const savedAnswer = userAnswers[currentQuestionIndex];
-        if (savedAnswer !== undefined) {
-            if (typeof savedAnswer === 'number') {
-                setSelectedAnswer(savedAnswer);
-                setShortAnswer('');
-                setEssayAnswer('');
-            } else if (typeof savedAnswer === 'string') {
-                setSelectedAnswer(null);
-                if (isQuiz) {
-                    setShortAnswer(savedAnswer);
-                    setEssayAnswer('');
-                } else {
-                    setShortAnswer('');
-                    setEssayAnswer(savedAnswer);
-                }
-            }
-        } else {
-            // Clear selections when moving to an unanswered question
-            setSelectedAnswer(null);
-            setShortAnswer('');
-            setEssayAnswer('');
-        }
-    }, [currentQuestionIndex, userAnswers, isQuiz]);
-
-    // Fetch quiz and essay data
-    useEffect(() => {
-        if (!apiUrl || !id) return;
-
-        setIsLoading(true);
-        
-        // Fetch quiz data
-        fetch(`${apiUrl}/api/v1/${id}`)
-            .then((response) => response.json())
-            .then((data) => {
-                if (data.assignment) {
-                    setQuizData(data);
-                    setQuiz(data);
-                    setIsQuiz(true);
-                    setIsLoading(false);
-                    startSession();
-                }
-            })
-            .catch((error) => {
-                console.error('Error fetching quiz data:', error);
-                setIsLoading(false);
-            });
-
-        // Fetch essay data
-        fetch(`${apiUrl}/api/v1/essay/${id}`)
-            .then((response) => response.json())
-            .then((data) => {
-                if (data.essayAssignment) {
-                    setEssayData(data);
-                    setEssay(data);
-                    setIsEssay(true);
-                    setIsLoading(false);
-                    startSession();
-                }
-            })
-            .catch((error) => {
-                console.error('Error fetching essay data:', error);
-                setIsLoading(false);
-            });
-    }, [id, apiUrl, startSession]);
-
-    // Calculate progress percentage
-    const calculateProgress = () => {
-        const totalQuestions = (quizData?.assignment.questions.length || essayData?.essayAssignment.questions.length) ?? 1;
-        return ((currentQuestionIndex + 1) / totalQuestions) * 100;
-    };
-
-    // Timer countdown and auto-submit
-    useEffect(() => {
-        if (quizEndTime) {
-            const calculateRemainingTime = () => {
-                const now = new Date();
-                const end = new Date(quizEndTime);
-                const timeLeft = Math.max(0, Math.floor((end.getTime() - now.getTime()) / 1000));
-
-                setRemainingTime(timeLeft);
-                
-                // Auto-submit if time runs out
-                if (timeLeft <= 0) {
-                    console.log("Time's up!");
-                    completeSession();
-                    router.push(`/submissionpage/${id}`);
-                }
-            };
-
-            calculateRemainingTime();
-
-            // Set up interval
-            const timer = setInterval(calculateRemainingTime, 1000);
-
-            return () => clearInterval(timer);
-        }
-    }, [quizEndTime, id, router, completeSession]);
-
-    // Loading indicator
+    };// Loading indicator
     if (isLoading) {
         return (
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div>
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-green-50 to-white">
+                <div className="text-center">
+                    <Loader2 className="h-12 w-12 animate-spin text-green-500 mx-auto mb-4" />
+                    <p className="text-gray-600 font-medium">Loading your quiz...</p>
+                </div>
             </div>
         );
     }
@@ -551,30 +548,50 @@ const QuizPage = () => {
     // No quiz data
     if (!isQuiz && !isEssay) {
         return (
-            <div className="min-h-screen flex items-center justify-center">
-                <Card className="w-full max-w-md p-6">
-                    <p className="text-center text-gray-600">No quiz or essay data available</p>
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-green-50 to-white">
+                <Card className="w-full max-w-md p-8 shadow-lg border-0">
+                    <div className="text-center">
+                        <AlertCircle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
+                        <h2 className="text-xl font-semibold text-gray-800 mb-2">No Assessment Found</h2>
+                        <p className="text-gray-600 mb-6">We couldn't find the quiz or essay you're looking for.</p>
+                        <button 
+                            onClick={() => router.push('/dashboard')}
+                            className="px-6 py-2 bg-green-500 hover:bg-green-600 text-white font-medium rounded-lg transition-colors"
+                        >
+                            Back to Dashboard
+                        </button>
+                    </div>
                 </Card>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-gradient-to-b from-green-50 to-white">
             {isMonitoring && <QuizMonitor onViolation={handleViolation} />}
             
             {/* Top Progress Bar */}
             <div className="fixed top-0 left-0 w-full z-50">
-                <Progress value={calculateProgress()} className="h-2" />
+                <Progress value={calculateProgress()} className="h-2 bg-green-100" 
+                    style={{
+                        "--tw-progress-fill": "linear-gradient(to right, #10b981, #059669)"
+                    } as React.CSSProperties}
+                />
             </div>
 
             {/* Timer Card */}
             <div className="fixed top-4 right-4 z-40">
-                <Card className="bg-white shadow-lg">
+                <Card className="bg-white shadow-lg border-0">
                     <CardContent className="p-4">
                         <div className="flex items-center gap-2">
-                            <Clock className="w-5 h-5 text-gray-600" />
-                            <span className={`text-lg font-semibold ${remainingTime <= 300 ? 'text-red-500' : 'text-gray-700'}`}>
+                            <Clock className={`w-5 h-5 ${remainingTime <= 300 ? 'text-red-500' : 'text-green-600'}`} />
+                            <span className={`text-lg font-semibold ${
+                                remainingTime <= 300 
+                                    ? 'text-red-500' 
+                                    : remainingTime <= 600 
+                                        ? 'text-amber-500' 
+                                        : 'text-gray-700'
+                            }`}>
                                 {formatTime(remainingTime)}
                             </span>
                         </div>
@@ -584,13 +601,13 @@ const QuizPage = () => {
 
             <main className="container mx-auto px-4 pt-16 pb-32">
                 {/* Question Section */}
-                <Card className="max-w-4xl mx-auto mt-8 bg-white shadow-lg">
+                <Card className="max-w-4xl mx-auto mt-8 bg-white shadow-lg border-0 rounded-xl overflow-hidden">
                     <CardContent className="p-8">
                         <div className="mb-8">
-                            <span className="text-sm font-medium text-gray-500">
+                            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
                                 Question {currentQuestionIndex + 1} of {(quizData?.assignment.questions.length || essayData?.essayAssignment.questions.length)}
                             </span>
-                            <h2 className="mt-2 text-xl font-semibold text-gray-900">
+                            <h2 className="mt-4 text-xl font-semibold text-gray-800">
                                 {quizData ?
                                     quizData.assignment.questions[currentQuestionIndex].questionText :
                                     essayData?.essayAssignment.questions[currentQuestionIndex].questionText
@@ -605,7 +622,7 @@ const QuizPage = () => {
                                         <div
                                             key={index}
                                             onClick={() => handleAnswerClick(index, quizData.assignment.questions[currentQuestionIndex]._id, answer._id)}
-                                            className={`p-4 rounded-lg border-2 transition-all cursor-pointer
+                                            className={`p-4 rounded-xl border-2 transition-all cursor-pointer hover:shadow-md
                                                 ${selectedAnswer === index
                                                     ? 'border-green-500 bg-green-50'
                                                     : 'border-gray-200 hover:border-green-300 hover:bg-gray-50'}`}
@@ -627,7 +644,7 @@ const QuizPage = () => {
                                 </div>
                             ) : (
                                 <textarea
-                                    className="w-full h-48 p-4 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none"
+                                    className="w-full h-48 p-4 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none"
                                     placeholder="Write your answer here..."
                                     value={shortAnswer}
                                     onChange={handleShortAnswerChange}
@@ -635,7 +652,7 @@ const QuizPage = () => {
                             )
                         ) : (
                             <textarea
-                                className="w-full h-48 p-4 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none"
+                                className="w-full h-48 p-4 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none"
                                 placeholder="Write your essay answer here..."
                                 value={essayAnswer}
                                 onChange={handleEssayAnswerChange}
@@ -649,7 +666,7 @@ const QuizPage = () => {
                     <button
                         onClick={handlePrevious}
                         disabled={currentQuestionIndex === 0}
-                        className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all
+                        className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all shadow-sm
                             ${currentQuestionIndex === 0
                                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                                 : 'bg-white text-gray-700 hover:bg-gray-50 active:bg-gray-100'}`}
@@ -660,7 +677,7 @@ const QuizPage = () => {
 
                     <button
                         onClick={handleNext}
-                        className="flex items-center gap-2 px-6 py-3 rounded-lg bg-green-500 text-white font-medium hover:bg-green-600 active:bg-green-700 transition-all"
+                        className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-green-500 to-green-600 text-white font-medium hover:from-green-600 hover:to-green-700 active:from-green-700 active:to-green-800 transition-all shadow-sm"
                     >
                         {currentQuestionIndex === ((quizData?.assignment.questions.length || essayData?.essayAssignment.questions.length) ?? 1) - 1 ? (
                             <>
@@ -684,14 +701,27 @@ const QuizPage = () => {
                         {(quizData?.assignment.questions ?? essayData?.essayAssignment.questions ?? []).map((_, index) => (
                             <div
                                 key={index}
-                                className={`w-10 h-10 rounded-lg flex items-center justify-center border-2 transition-all
+                                onClick={() => {
+                                    // Save current answer before moving
+                                    setUserAnswers(prev => ({
+                                        ...prev,
+                                        [currentQuestionIndex]: selectedAnswer !== null ? selectedAnswer : (shortAnswer || essayAnswer),
+                                    }));
+                                    setCurrentQuestionIndex(index);
+                                }}
+                                className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all cursor-pointer
                                     ${userAnswers[index] !== undefined
-                                        ? 'border-green-500 bg-green-500 text-white'
+                                        ? 'bg-green-500 text-white shadow-sm'
                                         : index === currentQuestionIndex
-                                            ? 'border-green-500 text-green-500'
-                                            : 'border-gray-200 text-gray-500'}`}
+                                            ? 'border-2 border-green-500 text-green-600 shadow-sm'
+                                            : 'border border-gray-200 text-gray-500 hover:border-green-300 hover:text-green-600'}`}
                             >
-                                {index + 1}
+                                {userAnswers[index] !== undefined && (
+                                    <CheckCircle className="w-4 h-4" />
+                                )}
+                                {userAnswers[index] === undefined && (
+                                    <span>{index + 1}</span>
+                                )}
                             </div>
                         ))}
                     </div>

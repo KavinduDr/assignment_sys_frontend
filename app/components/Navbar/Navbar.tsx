@@ -1,84 +1,106 @@
 'use client'
 
 import { useUser } from '@/context/UserContext';
-import { useRouter } from 'next/navigation'
-import React, { use, useEffect, useState } from 'react'
-import axios from 'axios';
+import { useRouter } from 'next/navigation';
+import React, { useEffect, useState } from 'react';
+import { LogOut, User, Home, CheckCircle, Settings } from 'lucide-react';
 
 const Navbar = () => {
+  const router = useRouter();
+  const { user } = useUser();
+  const [apiUrl, setApiUrl] = useState('');
+  const [name, setName] = useState('');
+  const [activeTab, setActiveTab] = useState('');
 
-    const router = useRouter();
-
-    const { user } = useUser();
-    // console.log(user);
-    const [apiUrl, setApiUrl] = useState('');
-    const [name, setName] = useState('');
-
-    useEffect(() => {
-        if(typeof window !== 'undefined') {
-            setName(sessionStorage.getItem('name') || user?.name || '');
-        }
-    }, [user]);
-
-    useEffect(() => {
-        if (typeof window !== 'undefined') {
-            // This will run only on the client side
-            if (window.location.hostname === 'localhost') {
-                setApiUrl('http://localhost:4000');
-            } else {
-                setApiUrl(`${process.env.NEXT_PUBLIC_DEPLOYMENT_URL}`);
-            }
-        }
-    }, []);
-    const handleLogout = async () => {
-        localStorage.removeItem('token');
-        sessionStorage.removeItem('token');
-        sessionStorage.removeItem('name');
-        router.push('/signin');
-        //fix below
-        // try {
-        //     const response = await axios.get(`${apiUrl}/api/v1/logout-user`);
-        //     if (response.status === 200 || response.data.success) {
-
-        //         router.push('/signin');
-        //     }
-        //     else {
-        //         alert('Invalid credentials')
-        //     }
-        // }
-        // catch (error) {
-        //     console.error('Error during logout:', error);
-        //     alert('An error occurred. Please try again.');
-        // }
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setName(sessionStorage.getItem('name') || user?.name || '');
+      // Set active tab based on current path
+      const path = window.location.pathname;
+      if (path.includes('dashboard')) setActiveTab('dashboard');
+      else if (path.includes('completed')) setActiveTab('completed');
+      else if (path.includes('settings')) setActiveTab('settings');
     }
+  }, [user]);
 
-    return (
-        <div className='w-full h-[100px] flex justify-between items-center px-4 mt-2'>
-            <div className="w-full h-[100px] border-green-500 border-2 rounded-3xl flex justify-between items-center px-4">
-                <div className="w-10 h-10 cursor-pointer" onClick={() => router.push('/settings')}>{name}</div>
-                <div className="flex space-x-8 text-black text-lg">
-                    <button onClick={() => router.push('/dashboard')} className='cursor-pointer hover:transform hover:scale-110 transition-transform duration-300'>Dashboard</button>
-                    <button onClick={() => router.push('/completed')} className='cursor-pointer hover:transform hover:scale-110 transition-transform duration-300'>Completed</button>
-                    <button onClick={() => router.push('/settings')} className='cursor-pointer hover:transform hover:scale-110 transition-transform duration-300'>Settings</button>
-                </div>
-                <div className="w-10 h-10">
-                    <svg
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        onClick={handleLogout} // Add the onClick event
-                        className='cursor-pointer hover:transform hover:scale-110 transition-transform duration-300'
-                    >
-                        <path
-                            fill="#000"
-                            fillRule="evenodd"
-                            d="M21.593 10.943c.584.585.584 1.53 0 2.116L18.71 15.95c-.39.39-1.03.39-1.42 0a.996.996 0 010-1.41 9.552 9.552 0 011.689-1.345l.387-.242-.207-.206a10 10 0 01-2.24.254H8.998a1 1 0 110-2h7.921a10 10 0 012.24.254l.207-.206-.386-.241a9.562 9.562 0 01-1.69-1.348.996.996 0 010-1.41c.39-.39 1.03-.39 1.42 0l2.883 2.893zM14 16a1 1 0 00-1 1v1.5a.5.5 0 01-.5.5h-7a.5.5 0 01-.5-.5v-13a.5.5 0 01.5-.5h7a.5.5 0 01.5.5v1.505a1 1 0 102 0V5.5A2.5 2.5 0 0012.5 3h-7A2.5 2.5 0 003 5.5v13A2.5 2.5 0 005.5 21h7a2.5 2.5 0 002.5-2.5V17a1 1 0 00-1-1z"
-                            clipRule="evenodd"
-                        ></path>
-                    </svg>
-                </div> {/* Placeholder for logout */}
-            </div>
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // This will run only on the client side
+      if (window.location.hostname === 'localhost') {
+        setApiUrl('http://localhost:4000');
+      } else {
+        setApiUrl(`${process.env.NEXT_PUBLIC_DEPLOYMENT_URL}`);
+      }
+    }
+  }, []);
+
+  const handleLogout = async () => {
+    localStorage.removeItem('token');
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('name');
+    router.push('/signin');
+  };
+
+  const handleNavigation = (path) => {
+    setActiveTab(path);
+    router.push(`/${path}`);
+  };
+
+  return (
+    <div className="w-full h-[100px] flex justify-between items-center px-4 mt-2">
+      <div className="w-full h-[100px] bg-white border-green-500 border-2 rounded-3xl flex justify-between items-center px-6 shadow-md hover:shadow-lg transition-shadow duration-300">
+        {/* User Profile Section */}
+        <div 
+          className="flex items-center space-x-3 cursor-pointer group" 
+          onClick={() => handleNavigation('settings')}
+        >
+          <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-green-600">
+            <User size={20} />
+          </div>
+          <div className="flex flex-col">
+            <span className="font-medium text-gray-800 group-hover:text-green-600 transition-colors">
+              {name || 'User'}
+            </span>
+            <span className="text-xs text-gray-500">Student</span>
+          </div>
         </div>
-    )
-}
 
-export default Navbar
+        {/* Navigation Links */}
+        <div className="flex space-x-8 text-gray-700 font-medium">
+          <button 
+            onClick={() => handleNavigation('dashboard')} 
+            className={`flex items-center space-x-1 py-2 px-3 rounded-lg transition-all duration-300 hover:text-green-600 hover:bg-green-50 ${activeTab === 'dashboard' ? 'text-green-600 bg-green-50' : ''}`}
+          >
+            <Home size={18} />
+            <span>Dashboard</span>
+          </button>
+          <button 
+            onClick={() => handleNavigation('completed')} 
+            className={`flex items-center space-x-1 py-2 px-3 rounded-lg transition-all duration-300 hover:text-green-600 hover:bg-green-50 ${activeTab === 'completed' ? 'text-green-600 bg-green-50' : ''}`}
+          >
+            <CheckCircle size={18} />
+            <span>Completed</span>
+          </button>
+          <button 
+            onClick={() => handleNavigation('settings')} 
+            className={`flex items-center space-x-1 py-2 px-3 rounded-lg transition-all duration-300 hover:text-green-600 hover:bg-green-50 ${activeTab === 'settings' ? 'text-green-600 bg-green-50' : ''}`}
+          >
+            <Settings size={18} />
+            <span>Settings</span>
+          </button>
+        </div>
+
+        {/* Logout Button */}
+        <div 
+          onClick={handleLogout}
+          className="flex items-center space-x-2 cursor-pointer text-gray-700 hover:text-red-500 transition-colors py-2 px-3 rounded-lg hover:bg-red-50"
+        >
+          <LogOut size={20} />
+          <span className="hidden md:inline">Logout</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Navbar;
